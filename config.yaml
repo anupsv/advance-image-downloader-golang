@@ -4,3 +4,5 @@ batch_size: 2
 min_wait_time: 0.8
 max_wait_time: 3.0
 max_image_size_mb: MAX
+replace_downloaded_file_size: true
+skip_if_file_exists: false
