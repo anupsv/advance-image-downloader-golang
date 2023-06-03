@@ -46,6 +46,21 @@ func main() {
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, config.BatchSize)
 
+	// Create a set of already downloaded images
+	alreadyDownloaded := make(map[string]struct{})
+
+	// Populate the set with filenames in the download directory
+	files, err := os.ReadDir(config.DownloadDirectory)
+	if err != nil {
+		fmt.Printf("Error reading download directory: %s\n", err)
+		return
+	}
+	for _, file := range files {
+		if !file.IsDir() {
+			alreadyDownloaded[file.Name()] = struct{}{}
+		}
+	}
+
 	for _, url := range urls {
 		wg.Add(1)
 		go func(url string) {
@@ -55,7 +70,7 @@ func main() {
 			filepath := filepath.Join(config.DownloadDirectory, filename)
 
 			// Skip downloading if the file already exists
-			if _, err := os.Stat(filepath); err == nil {
+			if _, exists := alreadyDownloaded[filename]; exists {
 				fmt.Printf("Skipped %s (already exists)\n", filename)
 				return
 			}
@@ -73,6 +88,7 @@ func main() {
 				fmt.Printf("Error downloading %s: %s\n", filename, err)
 			} else {
 				fmt.Printf("Downloaded %s\n", filename)
+				alreadyDownloaded[filename] = struct{}{} // Add downloaded image to the set
 			}
 
 			<-semaphore // Release semaphore slot
