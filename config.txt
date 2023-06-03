@@ -1,0 +1,5 @@
+ImageURLFile = image_urls.txt
+DownloadDirectory = ./downloads/
+BatchSize = 2
+MinWaitTime = 0.8
+MaxWaitTime = 3.0
