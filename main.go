@@ -17,12 +17,14 @@ import (
 )
 
 type Config struct {
-	ImageURLFile       string  `mapstructure:"image_url_file"`
-	DownloadDirectory  string  `mapstructure:"download_directory"`
-	BatchSize          int     `mapstructure:"batch_size"`
-	MinWaitTime        float64 `mapstructure:"min_wait_time"`
-	MaxWaitTime        float64 `mapstructure:"max_wait_time"`
-	MaxImageSizeMB     string  `mapstructure:"max_image_size_mb"`
+	ImageURLFile               string  `mapstructure:"image_url_file"`
+	DownloadDirectory          string  `mapstructure:"download_directory"`
+	BatchSize                  int     `mapstructure:"batch_size"`
+	MinWaitTime                float64 `mapstructure:"min_wait_time"`
+	MaxWaitTime                float64 `mapstructure:"max_wait_time"`
+	MaxImageSizeMB             string  `mapstructure:"max_image_size_mb"`
+	ReplaceDownloadedFileSize  bool    `mapstructure:"replace_downloaded_file_size"`
+	SkipIfFileExists           bool    `mapstructure:"skip_if_file_exists"`
 }
 
 func main() {
@@ -70,7 +72,7 @@ func main() {
 			filepath := filepath.Join(config.DownloadDirectory, filename)
 
 			// Skip downloading if the file already exists
-			if _, exists := alreadyDownloaded[filename]; exists {
+			if config.SkipIfFileExists && isFileExists(filepath) {
 				fmt.Printf("Skipped %s (already exists)\n", filename)
 				return
 			}
@@ -83,12 +85,18 @@ func main() {
 
 			semaphore <- struct{}{} // Acquire semaphore slot
 
-			err := downloadImage(url, filepath)
-			if err != nil {
-				fmt.Printf("Error downloading %s: %s\n", filename, err)
+			if config.ReplaceDownloadedFileSize {
+				if err := replaceDownloadedFile(url, filepath); err != nil {
+					fmt.Printf("Error replacing %s: %s\n", filename, err)
+				} else {
+					fmt.Printf("Replaced %s\n", filename)
+				}
 			} else {
-				fmt.Printf("Downloaded %s\n", filename)
-				alreadyDownloaded[filename] = struct{}{} // Add downloaded image to the set
+				if err := downloadImage(url, filepath); err != nil {
+					fmt.Printf("Error downloading %s: %s\n", filename, err)
+				} else {
+					fmt.Printf("Downloaded %s\n", filename)
+				}
 			}
 
 			<-semaphore // Release semaphore slot
@@ -160,6 +168,57 @@ func downloadImage(url, filepath string) error {
 	return err
 }
 
+func replaceDownloadedFile(url, filepath string) error {
+	tempFilepath := filepath + ".temp"
+
+	response, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+
+	tempFile, err := os.Create(tempFilepath)
+	if err != nil {
+		return err
+	}
+	defer tempFile.Close()
+
+	_, err = io.Copy(tempFile, response.Body)
+	if err != nil {
+		return err
+	}
+
+	// Check if the new file size differs from the existing file size
+	existingFileInfo, err := os.Stat(filepath)
+	if err != nil {
+		return err
+	}
+
+	tempFileInfo, err := os.Stat(tempFilepath)
+	if err != nil {
+		return err
+	}
+
+	if existingFileInfo.Size() == tempFileInfo.Size() {
+		os.Remove(tempFilepath) // Delete temporary file if sizes match
+		return nil
+	}
+
+	// Remove the existing file
+	err = os.Remove(filepath)
+	if err != nil {
+		return err
+	}
+
+	// Rename the temporary file to the original filename
+	err = os.Rename(tempFilepath, filepath)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func generateRandomWaitTime(min, max float64) time.Duration {
 	waitSeconds := min + rand.Float64()*(max-min)
 	waitDuration := time.Duration(waitSeconds * float64(time.Second))
@@ -194,4 +253,9 @@ func isImageSizeExceeded(url string, maxSizeMB string) bool {
 	}
 
 	return false
+}
+
+func isFileExists(filepath string) bool {
+	_, err := os.Stat(filepath)
+	return !os.IsNotExist(err)
 }
