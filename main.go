@@ -12,18 +12,20 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/spf13/viper"
 )
 
 type Config struct {
-	ImageURLFile       string
-	DownloadDirectory  string
-	BatchSize          int
-	MinWaitTime        float64
-	MaxWaitTime        float64
+	ImageURLFile       string  `mapstructure:"image_url_file"`
+	DownloadDirectory  string  `mapstructure:"download_directory"`
+	BatchSize          int     `mapstructure:"batch_size"`
+	MinWaitTime        float64 `mapstructure:"min_wait_time"`
+	MaxWaitTime        float64 `mapstructure:"max_wait_time"`
 }
 
 func main() {
-	configFile := "config.txt"
+	configFile := "config.yaml"
 
 	config, err := readConfigFile(configFile)
 	if err != nil {
@@ -105,50 +107,17 @@ func readImageURLs(file string) ([]string, error) {
 }
 
 func readConfigFile(file string) (*Config, error) {
-	config := &Config{}
-
-	f, err := os.Open(file)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Text()
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) == 2 {
-			key := strings.TrimSpace(parts[0])
-			value := strings.TrimSpace(parts[1])
-			switch key {
-			case "ImageURLFile":
-				config.ImageURLFile = value
-			case "DownloadDirectory":
-				config.DownloadDirectory = value
-			case "BatchSize":
-				config.BatchSize, err = strconv.Atoi(value)
-				if err != nil {
-					return nil, err
-				}
-			case "MinWaitTime":
-				config.MinWaitTime, err = strconv.ParseFloat(value, 64)
-				if err != nil {
-					return nil, err
-				}
-			case "MaxWaitTime":
-				config.MaxWaitTime, err = strconv.ParseFloat(value, 64)
-				if err != nil {
-					return nil, err
-				}
-			}
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
+	viper.SetConfigFile(file)
+	if err := viper.ReadInConfig(); err != nil {
 		return nil, err
 	}
 
-	return config, nil
+	var config Config
+	if err := viper.Unmarshal(&config); err != nil {
+		return nil, err
+	}
+
+	return &config, nil
 }
 
 func downloadImage(url, filepath string) error {
