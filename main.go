@@ -22,6 +22,7 @@ type Config struct {
 	BatchSize          int     `mapstructure:"batch_size"`
 	MinWaitTime        float64 `mapstructure:"min_wait_time"`
 	MaxWaitTime        float64 `mapstructure:"max_wait_time"`
+	MaxImageSizeMB     string  `mapstructure:"max_image_size_mb"`
 }
 
 func main() {
@@ -56,6 +57,12 @@ func main() {
 			// Skip downloading if the file already exists
 			if _, err := os.Stat(filepath); err == nil {
 				fmt.Printf("Skipped %s (already exists)\n", filename)
+				return
+			}
+
+			// Skip size check if max_image_size_mb is set to "MAX"
+			if config.MaxImageSizeMB != "MAX" && isImageSizeExceeded(url, config.MaxImageSizeMB) {
+				fmt.Printf("Skipped %s (exceeded maximum size)\n", filename)
 				return
 			}
 
@@ -142,4 +149,33 @@ func generateRandomWaitTime(min, max float64) time.Duration {
 	waitDuration := time.Duration(waitSeconds * float64(time.Second))
 
 	return waitDuration
+}
+
+func isImageSizeExceeded(url string, maxSizeMB string) bool {
+	if maxSizeMB == "MAX" {
+		return false
+	}
+
+	maxSize, err := strconv.ParseInt(maxSizeMB, 10, 64)
+	if err != nil {
+		return false
+	}
+
+	response, err := http.Head(url)
+	if err != nil {
+		return true
+	}
+	defer response.Body.Close()
+
+	contentLength := response.ContentLength
+	if contentLength == -1 {
+		return true
+	}
+
+	maxSizeBytes := maxSize * 1024 * 1024
+	if contentLength > maxSizeBytes {
+		return true
+	}
+
+	return false
 }
