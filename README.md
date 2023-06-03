@@ -11,12 +11,12 @@ A Go program to download images from a list of URLs in parallel, with configurab
 1. Clone the repository:
 
    ```shell
-   git clone https://github.com/your-username/image-downloader.git
+   git clone https://github.com/anupsv/advanced-image-downloader-golang.git
    ```
 2. Navigate to the project directory:
 
     ```shell
-    cd image-downloader
+    cd advanced-image-downloader-golang
     ```
 
 3. Create a text file called image_urls.txt and add the URLs of the images you want to download, each on a separate line.
