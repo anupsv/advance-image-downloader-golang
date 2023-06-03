@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"log"
 	"math/rand"
 	"net/http"
 	"os"
@@ -32,18 +33,28 @@ func main() {
 
 	config, err := readConfigFile(configFile)
 	if err != nil {
-		fmt.Printf("Error reading config file: %s\n", err)
-		return
+		log.Fatalf("Error reading config file: %s", err)
 	}
 
 	urls, err := readImageURLs(config.ImageURLFile)
 	if err != nil {
-		fmt.Printf("Error reading image URLs: %s\n", err)
-		return
+		log.Fatalf("Error reading image URLs: %s", err)
 	}
 
 	totalImages := len(urls)
 	imagesLeft := totalImages
+
+	log.Printf("Starting image downloader...")
+	log.Printf("Configuration:")
+	log.Printf("  - Image URL File: %s", config.ImageURLFile)
+	log.Printf("  - Download Directory: %s", config.DownloadDirectory)
+	log.Printf("  - Batch Size: %d", config.BatchSize)
+	log.Printf("  - Min Wait Time: %.2f", config.MinWaitTime)
+	log.Printf("  - Max Wait Time: %.2f", config.MaxWaitTime)
+	log.Printf("  - Max Image Size: %s", config.MaxImageSizeMB)
+	log.Printf("  - Replace Downloaded File Size: %v", config.ReplaceDownloadedFileSize)
+	log.Printf("  - Skip If File Exists: %v", config.SkipIfFileExists)
+	log.Printf("Downloading %d images...", totalImages)
 
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, config.BatchSize)
@@ -54,8 +65,7 @@ func main() {
 	// Populate the set with filenames in the download directory
 	files, err := os.ReadDir(config.DownloadDirectory)
 	if err != nil {
-		fmt.Printf("Error reading download directory: %s\n", err)
-		return
+		log.Fatalf("Error reading download directory: %s", err)
 	}
 	for _, file := range files {
 		if !file.IsDir() {
@@ -73,13 +83,13 @@ func main() {
 
 			// Skip downloading if the file already exists
 			if config.SkipIfFileExists && isFileExists(filepath) {
-				fmt.Printf("Skipped %s (already exists)\n", filename)
+				log.Printf("[Goroutine %d] Skipped %s (already exists)", getGoroutineID(), filename)
 				return
 			}
 
 			// Skip size check if max_image_size_mb is set to "MAX"
 			if config.MaxImageSizeMB != "MAX" && isImageSizeExceeded(url, config.MaxImageSizeMB) {
-				fmt.Printf("Skipped %s (exceeded maximum size)\n", filename)
+				log.Printf("[Goroutine %d] Skipped %s (exceeded maximum size)", getGoroutineID(), filename)
 				return
 			}
 
@@ -87,15 +97,15 @@ func main() {
 
 			if config.ReplaceDownloadedFileSize {
 				if err := replaceDownloadedFile(url, filepath); err != nil {
-					fmt.Printf("Error replacing %s: %s\n", filename, err)
+					log.Printf("[Goroutine %d] Error replacing %s: %s", getGoroutineID(), filename, err)
 				} else {
-					fmt.Printf("Replaced %s\n", filename)
+					log.Printf("[Goroutine %d] Replaced %s", getGoroutineID(), filename)
 				}
 			} else {
 				if err := downloadImage(url, filepath); err != nil {
-					fmt.Printf("Error downloading %s: %s\n", filename, err)
+					log.Printf("[Goroutine %d] Error downloading %s: %s", getGoroutineID(), filename, err)
 				} else {
-					fmt.Printf("Downloaded %s\n", filename)
+					log.Printf("[Goroutine %d] Downloaded %s", getGoroutineID(), filename)
 				}
 			}
 
@@ -105,7 +115,7 @@ func main() {
 		if len(semaphore) == config.BatchSize {
 			wg.Wait() // Wait for the current batch to complete
 			imagesLeft -= config.BatchSize
-			fmt.Printf("Batch processed. %d images remaining...\n", imagesLeft)
+			log.Printf("Batch processed. %d images remaining...", imagesLeft)
 
 			waitTime := generateRandomWaitTime(config.MinWaitTime, config.MaxWaitTime)
 			time.Sleep(waitTime)
@@ -113,7 +123,7 @@ func main() {
 	}
 
 	wg.Wait() // Wait for the remaining downloads to complete
-	fmt.Println("All images downloaded!")
+	log.Println("All images downloaded!")
 }
 
 func readImageURLs(file string) ([]string, error) {
@@ -258,4 +268,13 @@ func isImageSizeExceeded(url string, maxSizeMB string) bool {
 func isFileExists(filepath string) bool {
 	_, err := os.Stat(filepath)
 	return !os.IsNotExist(err)
+}
+
+// getGoroutineID returns the ID of the current goroutine.
+func getGoroutineID() int {
+	var buf [64]byte
+	n := runtime.Stack(buf[:], false)
+	idField := strings.Fields(strings.TrimPrefix(string(buf[:n]), "goroutine "))[0]
+	id, _ := strconv.Atoi(idField)
+	return id
 }
