@@ -8,10 +8,12 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/spf13/viper"
@@ -56,6 +58,10 @@ func main() {
 	log.Printf("  - Skip If File Exists: %v", config.SkipIfFileExists)
 	log.Printf("Downloading %d images...", totalImages)
 
+	// Create a channel to receive the Ctrl+C signal
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, config.BatchSize)
 
@@ -73,25 +79,52 @@ func main() {
 		}
 	}
 
+	go func() {
+		<-stop // Wait for the Ctrl+C signal
+
+		log.Println("Interrupt signal received. Gracefully shutting down...")
+
+		// Wait for the current batch to complete
+		wg.Wait()
+		log.Printf("Batch processed. %d images remaining...", imagesLeft)
+
+		// Stop accepting new requests by closing the semaphore
+		close(semaphore)
+
+		// Wait for all remaining downloads to finish
+		wg.Wait()
+
+		log.Println("Shut down complete.")
+		os.Exit(0)
+	}()
+
 	for _, url := range urls {
+		if len(semaphore) == 0 {
+			log.Printf("Batch processed. %d images remaining...", imagesLeft)
+
+			// Wait for the specified wait time between batches
+			waitTime := generateRandomWaitTime(config.MinWaitTime, config.MaxWaitTime)
+			time.Sleep(waitTime)
+		}
+
+		// Skip downloading if the file already exists
+		if config.SkipIfFileExists && isFileExists(filepath.Join(config.DownloadDirectory, filepath.Base(url))) {
+			log.Printf("Skipped %s (already exists)", filepath.Base(url))
+			continue
+		}
+
+		// Skip size check if max_image_size_mb is set to "MAX"
+		if config.MaxImageSizeMB != "MAX" && isImageSizeExceeded(url, config.MaxImageSizeMB) {
+			log.Printf("Skipped %s (exceeded maximum size)", filepath.Base(url))
+			continue
+		}
+
 		wg.Add(1)
 		go func(url string) {
 			defer wg.Done()
 
 			filename := filepath.Base(url)
 			filepath := filepath.Join(config.DownloadDirectory, filename)
-
-			// Skip downloading if the file already exists
-			if config.SkipIfFileExists && isFileExists(filepath) {
-				log.Printf("[Goroutine %d] Skipped %s (already exists)", getGoroutineID(), filename)
-				return
-			}
-
-			// Skip size check if max_image_size_mb is set to "MAX"
-			if config.MaxImageSizeMB != "MAX" && isImageSizeExceeded(url, config.MaxImageSizeMB) {
-				log.Printf("[Goroutine %d] Skipped %s (exceeded maximum size)", getGoroutineID(), filename)
-				return
-			}
 
 			semaphore <- struct{}{} // Acquire semaphore slot
 
@@ -110,16 +143,8 @@ func main() {
 			}
 
 			<-semaphore // Release semaphore slot
+			imagesLeft--
 		}(url)
-
-		if len(semaphore) == config.BatchSize {
-			wg.Wait() // Wait for the current batch to complete
-			imagesLeft -= config.BatchSize
-			log.Printf("Batch processed. %d images remaining...", imagesLeft)
-
-			waitTime := generateRandomWaitTime(config.MinWaitTime, config.MaxWaitTime)
-			time.Sleep(waitTime)
-		}
 	}
 
 	wg.Wait() // Wait for the remaining downloads to complete
