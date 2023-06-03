@@ -1,0 +1,5 @@
+image_url_file: image_urls.txt
+download_directory: ./downloads/
+batch_size: 2
+min_wait_time: 0.8
+max_wait_time: 3.0
