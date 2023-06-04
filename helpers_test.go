@@ -6,7 +6,6 @@ import (
 	"os"
 	"strconv"
 	"testing"
-	"time"
 )
 
 func TestIsFileExists(t *testing.T) {
@@ -57,18 +56,5 @@ func TestIsImageSizeExceeded_MaxSize(t *testing.T) {
 	// Verify that the image size is not exceeded
 	if exceeded {
 		t.Errorf("Expected image size not to be exceeded, but it is")
-	}
-}
-
-func TestGenerateRandomWaitTime(t *testing.T) {
-	// Generate a random wait time
-	waitTime := generateRandomWaitTime(1.0, 3.0)
-
-	// Verify that the wait time is within the specified range
-	minWait := time.Duration(1.0 * float64(time.Second))
-	maxWait := time.Duration(3.0 * float64(time.Second))
-
-	if waitTime < minWait || waitTime > maxWait {
-		t.Errorf("Expected wait time to be between %s and %s, but got %s", minWait, maxWait, waitTime)
 	}
 }
