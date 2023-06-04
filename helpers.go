@@ -1,10 +1,11 @@
 package main
 
 import (
+	"bufio"
+	"io"
 	"math/rand"
 	"net/http"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
