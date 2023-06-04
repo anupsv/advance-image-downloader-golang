@@ -108,14 +108,18 @@ func downloadImage(url, downloadDir string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create file: %v", err)
 	}
-	defer file.Close()
+	defer func(file *os.File) {
+		_ = file.Close()
+	}(file)
 
 	// Download the image
 	resp, err := http.Get(url)
 	if err != nil {
 		return fmt.Errorf("failed to download image: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close()
+	}(resp.Body)
 
 	// Check if the response status is OK
 	if resp.StatusCode != http.StatusOK {
@@ -136,7 +140,9 @@ func getImageFileSize(url string) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to get image file size: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close()
+	}(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("failed to get image file size, status: %s", resp.Status)
