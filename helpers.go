@@ -1,152 +1,57 @@
 package main
 
 import (
-	"bufio"
-	"io"
-	"math/rand"
-	"net/http"
+	"fmt"
+	"io/ioutil"
 	"os"
-	"runtime"
-	"strconv"
 	"strings"
-	"time"
 )
 
-func ReadImageURLs(file string) ([]string, error) {
-	var urls []string
-
-	f, err := os.Open(file)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		urls = append(urls, scanner.Text())
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-
-	return urls, nil
-}
-
-func downloadImage(url, filepath string) error {
-	response, err := http.Get(url)
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-
-	file, err := os.Create(filepath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	_, err = io.Copy(file, response.Body)
-	return err
-}
-
-func replaceDownloadedFile(url, filepath string) error {
-	tempFilepath := filepath + ".temp"
-
-	response, err := http.Get(url)
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-
-	tempFile, err := os.Create(tempFilepath)
-	if err != nil {
-		return err
-	}
-	defer tempFile.Close()
-
-	_, err = io.Copy(tempFile, response.Body)
-	if err != nil {
-		return err
-	}
-
-	// Check if the new file size differs from the existing file size
-	existingFileInfo, err := os.Stat(filepath)
-	if err != nil {
-		return err
-	}
-
-	tempFileInfo, err := os.Stat(tempFilepath)
-	if err != nil {
-		return err
-	}
-
-	if existingFileInfo.Size() == tempFileInfo.Size() {
-		os.Remove(tempFilepath) // Delete temporary file if sizes match
-		return nil
-	}
-
-	// Remove the existing file
-	err = os.Remove(filepath)
-	if err != nil {
-		return err
-	}
-
-	// Rename the temporary file to the original filename
-	err = os.Rename(tempFilepath, filepath)
-	if err != nil {
+func ensureDownloadDirectory(downloadDir string) error {
+	// Check if the download directory already exists
+	_, err := os.Stat(downloadDir)
+	if os.IsNotExist(err) {
+		// Create the download directory
+		err := os.MkdirAll(downloadDir, 0755)
+		if err != nil {
+			return err
+		}
+	} else if err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func generateRandomWaitTime(min, max float64) time.Duration {
-	waitSeconds := min + rand.Float64()*(max-min)
-	waitDuration := time.Duration(waitSeconds * float64(time.Second))
-
-	return waitDuration
-}
-
-func isImageSizeExceeded(url string, maxSizeMB string) bool {
-	if maxSizeMB == "MAX" {
-		return false
-	}
-
-	maxSize, err := strconv.ParseInt(maxSizeMB, 10, 64)
+func readImageURLsFromFile(filePath string) ([]string, error) {
+	file, err := os.Open(filePath)
 	if err != nil {
-		return false
+		return nil, fmt.Errorf("failed to open image URL file: %v", err)
 	}
+	defer file.Close()
 
-	response, err := http.Head(url)
+	contents, err := ioutil.ReadAll(file)
 	if err != nil {
-		return true
-	}
-	defer response.Body.Close()
-
-	contentLength := response.ContentLength
-	if contentLength == -1 {
-		return true
+		return nil, fmt.Errorf("failed to read image URLs from file: %v", err)
 	}
 
-	maxSizeBytes := maxSize * 1024 * 1024
-	if contentLength > maxSizeBytes {
-		return true
+	imageURLs := strings.Split(string(contents), "\n")
+	var filteredURLs []string
+	for _, url := range imageURLs {
+		url = strings.TrimSpace(url)
+		if url != "" {
+			filteredURLs = append(filteredURLs, url)
+		}
 	}
 
-	return false
+	return filteredURLs, nil
 }
 
-func isFileExists(filepath string) bool {
-	_, err := os.Stat(filepath)
-	return !os.IsNotExist(err)
-}
+func getFileSize(filePath string) (int64, error) {
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get file size: %v", err)
+	}
 
-// getGoroutineID returns the ID of the current goroutine.
-func getGoroutineID() int {
-	var buf [64]byte
-	n := runtime.Stack(buf[:], false)
-	idField := strings.Fields(strings.TrimPrefix(string(buf[:n]), "goroutine "))[0]
-	id, _ := strconv.Atoi(idField)
-	return id
+	return fileInfo.Size(), nil
 }

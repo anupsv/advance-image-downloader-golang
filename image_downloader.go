@@ -1,108 +1,190 @@
 package main
 
 import (
-	"log"
+	"fmt"
+	"io"
+	"math/rand"
+	"net/http"
+	"os"
 	"path/filepath"
-	"sync"
+	"strconv"
+	"strings"
 	"time"
 )
 
-type ImageDownloader struct {
-	Config   *Config
-	URLs     []string
-	wg       sync.WaitGroup
-	stopChan chan struct{}
-}
-
-func NewImageDownloader(config *Config, urls []string) *ImageDownloader {
-	return &ImageDownloader{
-		Config:   config,
-		URLs:     urls,
-		stopChan: make(chan struct{}),
+func downloadImages(config *Config) error {
+	// Check if the batch size is less than 10
+	if config.BatchSize < 10 {
+		return fmt.Errorf("batch size should be at least 10")
 	}
-}
 
-func (d *ImageDownloader) Start() {
-	totalImages := len(d.URLs)
-	imagesLeft := totalImages
+	// Ensure the download directory exists
+	err := ensureDownloadDirectory(config.DownloadDirectory)
+	if err != nil {
+		return fmt.Errorf("failed to ensure download directory: %v", err)
+	}
 
-	log.Printf("Starting image downloader...")
-	log.Printf("Configuration:")
-	log.Printf("  - Image URL File: %s", d.Config.ImageURLFile)
-	log.Printf("  - Download Directory: %s", d.Config.DownloadDirectory)
-	log.Printf("  - Batch Size: %d", d.Config.BatchSize)
-	log.Printf("  - Min Wait Time: %.2f", d.Config.MinWaitTime)
-	log.Printf("  - Max Wait Time: %.2f", d.Config.MaxWaitTime)
-	log.Printf("  - Max Image Size: %s", d.Config.MaxImageSizeMB)
-	log.Printf("  - Replace Downloaded File Size: %v", d.Config.ReplaceDownloadedFileSize)
-	log.Printf("  - Skip If File Exists: %v", d.Config.SkipIfFileExists)
-	log.Printf("Downloading %d images...", totalImages)
+	imageURLs, err := readImageURLsFromFile(config.ImageURLFile)
+	if err != nil {
+		return fmt.Errorf("failed to read image URLs from file: %v", err)
+	}
 
-	var semaphore = make(chan struct{}, d.Config.BatchSize)
-
-	go func() {
-		<-d.stopChan // Wait for the stop signal
-
-		log.Println("Interrupt signal received. Gracefully shutting down...")
-
-		// Wait for the current batch to complete
-		d.wg.Wait()
-		log.Printf("Batch processed. %d images remaining...", imagesLeft)
-
-		close(semaphore) // Stop accepting new requests
-	}()
-
-	for _, url := range d.URLs {
-		if len(semaphore) == 0 {
-			log.Printf("Batch processed. %d images remaining...", imagesLeft)
-
-			// Wait for the specified wait time between batches
-			waitTime := generateRandomWaitTime(d.Config.MinWaitTime, d.Config.MaxWaitTime)
-			time.Sleep(waitTime)
-		}
-
-		// Skip downloading if the file already exists
-		if d.Config.SkipIfFileExists && isFileExists(filepath.Join(d.Config.DownloadDirectory, filepath.Base(url))) {
-			log.Printf("Skipped %s (already exists)", filepath.Base(url))
-			continue
-		}
-
-		// Skip size check if max_image_size_mb is set to "MAX"
-		if d.Config.MaxImageSizeMB != "MAX" && isImageSizeExceeded(url, d.Config.MaxImageSizeMB) {
-			log.Printf("Skipped %s (exceeded maximum size)", filepath.Base(url))
-			continue
-		}
-
-		d.wg.Add(1)
-		go func(url string) {
-			defer d.wg.Done()
-
-			filename := filepath.Base(url)
-			filepath := filepath.Join(d.Config.DownloadDirectory, filename)
-
-			semaphore <- struct{}{} // Acquire semaphore slot
-
-			if d.Config.ReplaceDownloadedFileSize {
-				if err := replaceDownloadedFile(url, filepath); err != nil {
-					log.Printf("[Goroutine %d] Error replacing %s: %s", getGoroutineID(), filename, err)
-				} else {
-					log.Printf("[Goroutine %d] Replaced %s", getGoroutineID(), filename)
-				}
-			} else {
-				if err := downloadImage(url, filepath); err != nil {
-					log.Printf("[Goroutine %d] Error downloading %s: %s", getGoroutineID(), filename, err)
-				} else {
-					log.Printf("[Goroutine %d] Downloaded %s", getGoroutineID(), filename)
+	batches := batchImageURLs(imageURLs, config.BatchSize)
+	for _, batch := range batches {
+		for _, url := range batch {
+			// Check if the file already exists
+			filePath := filepath.Join(config.DownloadDirectory, filepath.Base(url))
+			if isFileExists(filePath) {
+				if config.SkipIfFileExists {
+					// Skip downloading if the file already exists
+					continue
+				} else if config.ReplaceDownloadedFileSize {
+					// Check if the file size has changed, replace if it has
+					newSize, err := getImageFileSize(url)
+					if err != nil {
+						return fmt.Errorf("failed to get image file size: %v", err)
+					}
+					currentSize, err := getFileSize(filePath)
+					if err != nil {
+						return fmt.Errorf("failed to get current file size: %v", err)
+					}
+					if newSize == currentSize {
+						// Skip downloading if the file size hasn't changed
+						continue
+					}
 				}
 			}
 
-			<-semaphore // Release semaphore slot
-			imagesLeft--
-		}(url)
+			// Check if the image size is exceeded
+			if config.MaxImageSizeMB != "MAX" {
+				maxSize, err := parseMaxImageSize(config.MaxImageSizeMB)
+				if err != nil {
+					return fmt.Errorf("failed to parse max image size: %v", err)
+				}
+				if isImageSizeExceeded(url, maxSize) {
+					continue
+				}
+			}
+
+			err := downloadImage(url, config.DownloadDirectory)
+			if err != nil {
+				return fmt.Errorf("failed to download image: %v", err)
+			}
+		}
+
+		waitTime := generateRandomWaitTime(config.MinWaitTime, config.MaxWaitTime)
+		time.Sleep(waitTime)
 	}
+
+	return nil
 }
 
-func (d *ImageDownloader) Stop() {
-	close(d.stopChan) // Send stop signal
-	d.wg.Wait()       // Wait for all downloads to finish
+func batchImageURLs(imageURLs []string, batchSize int) [][]string {
+	var batches [][]string
+
+	for batchSize < len(imageURLs) {
+		imageURLs, batches = imageURLs[batchSize:], append(batches, imageURLs[0:batchSize:batchSize])
+	}
+
+	if len(imageURLs) > 0 {
+		batches = append(batches, imageURLs)
+	}
+
+	return batches
+}
+
+func downloadImage(url, downloadDir string) error {
+	fileName := filepath.Base(url)
+	filePath := filepath.Join(downloadDir, fileName)
+
+	// Check if the file already exists
+	if isFileExists(filePath) {
+		// File already exists, skip downloading
+		return nil
+	}
+
+	// Create the file
+	file, err := os.Create(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to create file: %v", err)
+	}
+	defer file.Close()
+
+	// Download the image
+	resp, err := http.Get(url)
+	if err != nil {
+		return fmt.Errorf("failed to download image: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Check if the response status is OK
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to download image, status: %s", resp.Status)
+	}
+
+	// Copy the response body to the file
+	_, err = io.Copy(file, resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to save image: %v", err)
+	}
+
+	return nil
+}
+
+func getImageFileSize(url string) (int64, error) {
+	resp, err := http.Head(url)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get image file size: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("failed to get image file size, status: %s", resp.Status)
+	}
+
+	sizeStr := resp.Header.Get("Content-Length")
+	size, err := strconv.ParseInt(sizeStr, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse image file size: %v", err)
+	}
+
+	return size, nil
+}
+
+func parseMaxImageSize(maxSize string) (int64, error) {
+	if strings.ToUpper(maxSize) == "MAX" {
+		return -1, nil
+	}
+
+	size, err := strconv.ParseInt(maxSize, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse max image size: %v", err)
+	}
+
+	return size * 1024 * 1024, nil
+}
+
+func isImageSizeExceeded(url string, maxSize int64) bool {
+	if maxSize == -1 {
+		return false
+	}
+
+	size, err := getImageFileSize(url)
+	if err != nil {
+		return true
+	}
+
+	return size > maxSize
+}
+
+func generateRandomWaitTime(min, max float64) time.Duration {
+	waitSeconds := min + rand.Float64()*(max-min)
+	waitDuration := time.Duration(waitSeconds * float64(time.Second))
+
+	return waitDuration
+}
+
+func isFileExists(filePath string) bool {
+	_, err := os.Stat(filePath)
+	return !os.IsNotExist(err)
 }

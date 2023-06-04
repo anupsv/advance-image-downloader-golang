@@ -1,30 +1,40 @@
 package main
 
 import (
+	"fmt"
 	"github.com/spf13/viper"
 )
 
 type Config struct {
-	ImageURLFile               string  `mapstructure:"image_url_file"`
-	DownloadDirectory          string  `mapstructure:"download_directory"`
-	BatchSize                  int     `mapstructure:"batch_size"`
-	MinWaitTime                float64 `mapstructure:"min_wait_time"`
-	MaxWaitTime                float64 `mapstructure:"max_wait_time"`
-	MaxImageSizeMB             string  `mapstructure:"max_image_size_mb"`
-	ReplaceDownloadedFileSize  bool    `mapstructure:"replace_downloaded_file_size"`
-	SkipIfFileExists           bool    `mapstructure:"skip_if_file_exists"`
+	ImageURLFile              string
+	DownloadDirectory         string
+	BatchSize                 int
+	MinWaitTime               float64
+	MaxWaitTime               float64
+	MaxImageSizeMB            string
+	ReplaceDownloadedFileSize bool
+	SkipIfFileExists          bool
 }
 
-func ReadConfigFile(file string) (*Config, error) {
-	viper.SetConfigFile(file)
-	if err := viper.ReadInConfig(); err != nil {
-		return nil, err
+func ReadConfigFile(configFilePath string) (*Config, error) {
+	viper.SetConfigFile(configFilePath)
+	viper.SetConfigType("yaml")
+
+	err := viper.ReadInConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %v", err)
 	}
 
-	var config Config
-	if err := viper.Unmarshal(&config); err != nil {
-		return nil, err
+	config := &Config{
+		ImageURLFile:              viper.GetString("image_url_file"),
+		DownloadDirectory:         viper.GetString("download_directory"),
+		BatchSize:                 viper.GetInt("batch_size"),
+		MinWaitTime:               viper.GetFloat64("min_wait_time"),
+		MaxWaitTime:               viper.GetFloat64("max_wait_time"),
+		MaxImageSizeMB:            viper.GetString("max_image_size_mb"),
+		ReplaceDownloadedFileSize: viper.GetBool("replace_downloaded_file_size"),
+		SkipIfFileExists:          viper.GetBool("skip_if_file_exists"),
 	}
 
-	return &config, nil
+	return config, nil
 }
