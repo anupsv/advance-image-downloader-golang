@@ -7,25 +7,25 @@ VENDOR_DIR := vendor
 build-linux-amd64:
 	@echo "Building for Linux (AMD64)..."
 	@mkdir -p $(BUILD_DIR)
-	@GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -o $(BUILD_DIR)/your-app-name-linux-amd64 .
+	@GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -o $(BUILD_DIR)/advance-image-downloader-linux-amd64 .
 
 .PHONY: build-linux-arm
 build-linux-arm:
 	@echo "Building for Linux (ARM)..."
 	@mkdir -p $(BUILD_DIR)
-	@GOOS=linux GOARCH=arm $(GO) build $(GOFLAGS) -o $(BUILD_DIR)/your-app-name-linux-arm .
+	@GOOS=linux GOARCH=arm $(GO) build $(GOFLAGS) -o $(BUILD_DIR)/advance-image-downloader-linux-arm .
 
 .PHONY: build-macos-amd64
 build-macos-amd64:
 	@echo "Building for macOS (AMD64)..."
 	@mkdir -p $(BUILD_DIR)
-	@GOOS=darwin GOARCH=amd64 $(GO) build $(GOFLAGS) -o $(BUILD_DIR)/your-app-name-macos-amd64 .
+	@GOOS=darwin GOARCH=amd64 $(GO) build $(GOFLAGS) -o $(BUILD_DIR)/advance-image-downloader-macos-amd64 .
 
 .PHONY: build-macos-arm
 build-macos-arm:
 	@echo "Building for macOS (ARM)..."
 	@mkdir -p $(BUILD_DIR)
-	@GOOS=darwin GOARCH=arm64 $(GO) build $(GOFLAGS) -o $(BUILD_DIR)/your-app-name-macos-arm .
+	@GOOS=darwin GOARCH=arm64 $(GO) build $(GOFLAGS) -o $(BUILD_DIR)/advance-image-downloader-macos-arm .
 
 .PHONY: vendor
 vendor:
