@@ -1,10 +1,11 @@
-module advanced-image-downloader-golang/m
+module example.com/m
 
 go 1.20
 
 require (
+	github.com/golang/mock v1.4.4
 	github.com/spf13/viper v1.16.0
-	github.com/stretchr/testify v1.8.3
+	github.com/stretchr/testify v1.8.4
 )
 
 require (

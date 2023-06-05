@@ -11,7 +11,7 @@ import (
 
 func main() {
 	// Load the configuration
-	err := loadConfig()
+	err := loadConfig("")
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
@@ -23,9 +23,21 @@ func main() {
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
 
+	// Create the HTTP client and file checker
+	httpClient := NewStandardHTTPClient()
+	fileChecker := NewDefaultFileChecker()
+	fileSizeGetter := NewDefaultFileSizeGetter()
+	urlReader := NewDefaultURLReader()
+	imageSizeChecker := NewDefaultImageSizeChecker()
+	waitTimeGenerator := NewDefaultWaitTimeGenerator()
+
+	// Create the image downloader
+	imageDownloader := NewImageDownloader(httpClient, fileChecker)
+
 	// Start the image downloader
 	go func() {
-		err := startImageDownloader()
+		err := startImageDownloader(imageDownloader, urlReader, imageSizeChecker, fileChecker,
+			fileSizeGetter, waitTimeGenerator)
 		if err != nil {
 			log.Fatalf("Image downloader failed: %v", err)
 		}
@@ -36,14 +48,24 @@ func main() {
 	log.Println("Received termination signal. Shutting down...")
 }
 
-func loadConfig() error {
-	viper.SetConfigName("config")
+func loadConfig(configFilePath string) error {
 	viper.SetConfigType("yaml")
-	viper.AddConfigPath(".")
+
+	if configFilePath != "" {
+		viper.SetConfigFile(configFilePath)
+	} else {
+		viper.SetConfigName("config")
+		viper.AddConfigPath(".")
+	}
 
 	err := viper.ReadInConfig()
 	if err != nil {
-		return fmt.Errorf("failed to read config file: %v", err)
+		if configFilePath != "" {
+			return fmt.Errorf("failed to read config file %s: %v", configFilePath, err)
+		}
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return fmt.Errorf("failed to read config file: %v", err)
+		}
 	}
 
 	viper.SetDefault("batch_size", 2)
@@ -68,7 +90,9 @@ func printConfig() {
 	log.Println("======================")
 }
 
-func startImageDownloader() error {
+func startImageDownloader(downloader Downloader, urlReader URLReader,
+	imageSizeChecker ImageSizeChecker, fileChecker FileChecker, fileSizeGetter FileSizeGetter,
+	waitTimeGenerator WaitTimeGenerator) error {
 	config := &Config{
 		ImageURLFile:              viper.GetString("image_url_file"),
 		DownloadDirectory:         viper.GetString("download_directory"),
@@ -80,7 +104,16 @@ func startImageDownloader() error {
 		SkipIfFileExists:          viper.GetBool("skip_if_file_exists"),
 	}
 
-	err := downloadImages(config)
+	helper := &Helper{
+		Downloader:        downloader,
+		URLReader:         urlReader,
+		ImageSizeChecker:  imageSizeChecker,
+		FileChecker:       fileChecker,
+		FileSizeGetter:    fileSizeGetter,
+		WaitTimeGenerator: waitTimeGenerator,
+	}
+
+	err := helper.DownloadImages(config)
 	if err != nil {
 		return fmt.Errorf("failed to download images: %v", err)
 	}

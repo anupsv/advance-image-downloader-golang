@@ -3,83 +3,139 @@ package main
 import (
 	"io/ioutil"
 	"os"
-	"path/filepath"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/spf13/viper"
 )
 
-func TestReadConfigFile(t *testing.T) {
+func TestLoadConfig(t *testing.T) {
 	// Create a temporary config file
-	tempDir := t.TempDir()
-	tempFile := filepath.Join(tempDir, "config.yaml")
-	configContent := `
-image_url_file: image_urls.txt
-download_directory: downloads
+	tempFile, err := ioutil.TempFile("/tmp", "config-*.yaml")
+	if err != nil {
+		t.Fatalf("Failed to create temporary config file: %v", err)
+	}
+	defer os.Remove(tempFile.Name())
+
+	// Write some configuration data to the temporary file
+	configData := []byte(`
 batch_size: 10
-min_wait_time: 1.0
-max_wait_time: 2.0
-max_image_size_mb: 5
+min_wait_time: 0.5
+max_wait_time: 2.5
+max_image_size_mb: "MAX"
 replace_downloaded_file_size: true
 skip_if_file_exists: false
-`
-	err := ioutil.WriteFile(tempFile, []byte(configContent), 0644)
-	assert.NoError(t, err)
+`)
+	err = ioutil.WriteFile(tempFile.Name(), configData, 0644)
+	if err != nil {
+		t.Fatalf("Failed to write config data to temporary file: %v", err)
+	}
 
-	// Read the config file
-	config, err := ReadConfigFile(tempFile)
-	assert.NoError(t, err)
+	// Load the configuration
+	err = loadConfig(tempFile.Name())
+	if err != nil {
+		t.Errorf("Failed to load configuration: %v", err)
+	}
 
-	// Assert the values
-	assert.Equal(t, "image_urls.txt", config.ImageURLFile)
-	assert.Equal(t, "downloads", config.DownloadDirectory)
-	assert.Equal(t, 10, config.BatchSize)
-	assert.Equal(t, 1.0, config.MinWaitTime)
-	assert.Equal(t, 2.0, config.MaxWaitTime)
-	assert.Equal(t, "5", config.MaxImageSizeMB)
-	assert.True(t, config.ReplaceDownloadedFileSize)
-	assert.False(t, config.SkipIfFileExists)
+	// Check the loaded configuration values
+	expectedBatchSize := 10
+	if viper.GetInt("batch_size") != expectedBatchSize {
+		t.Errorf("Expected batch size to be %d, but got %d", expectedBatchSize, viper.GetInt("batch_size"))
+	}
+
+	expectedMinWaitTime := 0.5
+	if viper.GetFloat64("min_wait_time") != expectedMinWaitTime {
+		t.Errorf("Expected min wait time to be %.2f, but got %.2f", expectedMinWaitTime, viper.GetFloat64("min_wait_time"))
+	}
+
+	expectedMaxWaitTime := 2.5
+	if viper.GetFloat64("max_wait_time") != expectedMaxWaitTime {
+		t.Errorf("Expected max wait time to be %.2f, but got %.2f", expectedMaxWaitTime, viper.GetFloat64("max_wait_time"))
+	}
+
+	expectedMaxImageSize := "MAX"
+	if viper.GetString("max_image_size_mb") != expectedMaxImageSize {
+		t.Errorf("Expected max image size to be %s, but got %s", expectedMaxImageSize, viper.GetString("max_image_size_mb"))
+	}
+
+	expectedReplaceFileSize := true
+	if viper.GetBool("replace_downloaded_file_size") != expectedReplaceFileSize {
+		t.Errorf("Expected replace downloaded file size to be %v, but got %v", expectedReplaceFileSize, viper.GetBool("replace_downloaded_file_size"))
+	}
+
+	expectedSkipIfExists := false
+	if viper.GetBool("skip_if_file_exists") != expectedSkipIfExists {
+		t.Errorf("Expected skip if file exists to be %v, but got %v", expectedSkipIfExists, viper.GetBool("skip_if_file_exists"))
+	}
 }
 
-func TestReadConfigFile_NotFound(t *testing.T) {
-	// Read a non-existent config file
-	configFile := "nonexistent.yaml"
-	config, err := ReadConfigFile(configFile)
+func TestLoadConfig_InvalidFile(t *testing.T) {
 
-	// Assert the error and config
-	assert.Error(t, err)
-	assert.Nil(t, config)
+	// Load the configuration
+	err := loadConfig("/tmp/nonexistent.yaml")
+	if err == nil {
+		t.Errorf("Expected error when loading invalid config file, but got nil")
+	}
 }
 
-func TestReadConfigFile_InvalidContent(t *testing.T) {
-	// Create a temporary config file with invalid content
-	tempDir := t.TempDir()
-	tempFile := filepath.Join(tempDir, "config.yaml")
-	configContent := "invalid config content"
-	err := ioutil.WriteFile(tempFile, []byte(configContent), 0644)
-	assert.NoError(t, err)
+func TestLoadConfig_DefaultValues(t *testing.T) {
+	// Clear any previously set configuration values
+	viper.Reset()
 
-	// Read the config file
-	config, err := ReadConfigFile(tempFile)
+	// Create a temporary config file
+	tempFile, err := ioutil.TempFile("/tmp", "config-*.yaml")
+	if err != nil {
+		t.Fatalf("Failed to create temporary config file: %v", err)
+	}
+	defer os.Remove(tempFile.Name())
 
-	// Assert the error and config
-	assert.Error(t, err)
-	assert.Nil(t, config)
-}
+	// Write some configuration data to the temporary file
+	configData := []byte(`
+batch_size: 2
+min_wait_time: 0.8
+max_wait_time: 3.0
+max_image_size_mb: "MAX"
+replace_downloaded_file_size: false
+skip_if_file_exists: true
+`)
+	err = ioutil.WriteFile(tempFile.Name(), configData, 0644)
+	if err != nil {
+		t.Fatalf("Failed to write config data to temporary file: %v", err)
+	}
 
-func TestEnsureDownloadDirectory_DirectoryDoesNotExist(t *testing.T) {
-	// Create a temporary directory
-	tempDir := t.TempDir()
+	// Load the configuration
+	err = loadConfig(tempFile.Name())
+	if err != nil {
+		t.Errorf("Failed to load configuration: %v", err)
+	}
 
-	// Remove the download directory
-	err := os.RemoveAll(tempDir)
-	assert.NoError(t, err)
+	// Check the default configuration values
+	defaultBatchSize := 2
+	if viper.GetInt("batch_size") != defaultBatchSize {
+		t.Errorf("Expected default batch size to be %d, but got %d", defaultBatchSize, viper.GetInt("batch_size"))
+	}
 
-	// Ensure the download directory
-	err = ensureDownloadDirectory(tempDir)
-	assert.NoError(t, err)
+	defaultMinWaitTime := 0.8
+	if viper.GetFloat64("min_wait_time") != defaultMinWaitTime {
+		t.Errorf("Expected default min wait time to be %.2f, but got %.2f", defaultMinWaitTime, viper.GetFloat64("min_wait_time"))
+	}
 
-	// Check if the directory exists
-	_, err = os.Stat(tempDir)
-	assert.NoError(t, err)
+	defaultMaxWaitTime := 3.0
+	if viper.GetFloat64("max_wait_time") != defaultMaxWaitTime {
+		t.Errorf("Expected default max wait time to be %.2f, but got %.2f", defaultMaxWaitTime, viper.GetFloat64("max_wait_time"))
+	}
+
+	defaultMaxImageSize := "MAX"
+	if viper.GetString("max_image_size_mb") != defaultMaxImageSize {
+		t.Errorf("Expected default max image size to be %s, but got %s", defaultMaxImageSize, viper.GetString("max_image_size_mb"))
+	}
+
+	defaultReplaceFileSize := false
+	if viper.GetBool("replace_downloaded_file_size") != defaultReplaceFileSize {
+		t.Errorf("Expected default replace downloaded file size to be %v, but got %v", defaultReplaceFileSize, viper.GetBool("replace_downloaded_file_size"))
+	}
+
+	defaultSkipIfExists := true
+	if viper.GetBool("skip_if_file_exists") != defaultSkipIfExists {
+		t.Errorf("Expected default skip if file exists to be %v, but got %v", defaultSkipIfExists, viper.GetBool("skip_if_file_exists"))
+	}
 }

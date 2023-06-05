@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"github.com/spf13/viper"
 )
 
 type Config struct {
@@ -16,25 +15,34 @@ type Config struct {
 	SkipIfFileExists          bool
 }
 
-func ReadConfigFile(configFilePath string) (*Config, error) {
-	viper.SetConfigFile(configFilePath)
-	viper.SetConfigType("yaml")
+func parseMaxImageSize(size string) (int64, error) {
+	if size == "MAX" {
+		return -1, nil
+	}
 
-	err := viper.ReadInConfig()
+	return parseSize(size)
+}
+
+func parseSize(size string) (int64, error) {
+	// Parse size with unit suffix (e.g., 10KB, 1MB, 1GB)
+	var value int64
+	var unit string
+	_, err := fmt.Sscanf(size, "%d%s", &value, &unit)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %v", err)
+		return 0, fmt.Errorf("failed to parse size: %w", err)
 	}
 
-	config := &Config{
-		ImageURLFile:              viper.GetString("image_url_file"),
-		DownloadDirectory:         viper.GetString("download_directory"),
-		BatchSize:                 viper.GetInt("batch_size"),
-		MinWaitTime:               viper.GetFloat64("min_wait_time"),
-		MaxWaitTime:               viper.GetFloat64("max_wait_time"),
-		MaxImageSizeMB:            viper.GetString("max_image_size_mb"),
-		ReplaceDownloadedFileSize: viper.GetBool("replace_downloaded_file_size"),
-		SkipIfFileExists:          viper.GetBool("skip_if_file_exists"),
+	// Convert size to bytes
+	switch unit {
+	case "B":
+		return value, nil
+	case "KB":
+		return value * 1024, nil
+	case "MB":
+		return value * 1024 * 1024, nil
+	case "GB":
+		return value * 1024 * 1024 * 1024, nil
+	default:
+		return 0, fmt.Errorf("invalid size unit: %s", unit)
 	}
-
-	return config, nil
 }

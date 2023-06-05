@@ -37,6 +37,13 @@ clean:
 	@echo "Cleaning..."
 	@rm -rf $(BUILD_DIR)
 
+# Run tests
+test:
+	@$(GO) test -v ./...
+
+mocks:
+	@GO111MODULE=on mockgen -destination mocks/mocks.go --build_flags=--mod=mod -package mocks . File,HTTPClient,FileChecker,FileSizeGetter
+
 .PHONY: help
 help:
 	@echo "Available targets:"
